@@ -19,6 +19,7 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
+import requests
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -36,48 +37,81 @@ ANOMALY_LOG = DATA_DIR / "anomalies.log"
 MISSING_THRESHOLD = 0.10   # drop tickers with > 10% missing trading days
 ANOMALY_THRESHOLD = -0.30  # flag single-day returns below -30%
 
-# ── Ticker universe — edit here to add/remove ETFs ────────────────────────────
-TICKERS: dict[str, dict] = {
-    # Domestic equity
-    "069500": {"name": "KODEX 200",                        "asset_class": "domestic_equity",  "risk_score": 4},
-    "229200": {"name": "KODEX 코스닥150",                  "asset_class": "domestic_equity",  "risk_score": 4},
-    # ESG
-    "289250": {"name": "TIGER MSCI KOREA ESG유니버설",     "asset_class": "esg",              "risk_score": 4},
-    "290130": {"name": "RISE ESG사회책임투자",             "asset_class": "esg",              "risk_score": 4},
-    # US equity
-    "379800": {"name": "KODEX 미국S&P500",                 "asset_class": "us_equity",        "risk_score": 4},
-    "219480": {"name": "KODEX 미국S&P500선물(H)",          "asset_class": "us_equity",        "risk_score": 4},
-    "379810": {"name": "KODEX 미국나스닥100",              "asset_class": "us_equity",        "risk_score": 5},
-    "314250": {"name": "KODEX 미국빅테크10(H)",            "asset_class": "us_equity",        "risk_score": 5},
-    "381180": {"name": "TIGER 미국필라델피아반도체나스닥", "asset_class": "us_equity",        "risk_score": 5},
-    "458730": {"name": "TIGER 미국배당다우존스",           "asset_class": "us_equity",        "risk_score": 3},
-    # US thematic
-    "487240": {"name": "KODEX AI전력핵심설비",             "asset_class": "us_thematic",      "risk_score": 5},
-    "487230": {"name": "KODEX 미국AI전력핵심인프라",       "asset_class": "us_thematic",      "risk_score": 5},
-    "483320": {"name": "ACE 엔비디아밸류체인액티브",       "asset_class": "us_thematic",      "risk_score": 5},
-    "457480": {"name": "ACE 테슬라밸류체인액티브",         "asset_class": "us_thematic",      "risk_score": 5},
-    "498400": {"name": "KODEX 200타겟위클리커버드콜",      "asset_class": "us_thematic",      "risk_score": 3},
-    # China / Asia
-    "192090": {"name": "TIGER 차이나CSI300",               "asset_class": "china_equity",     "risk_score": 5},
-    "245360": {"name": "TIGER 차이나HSCEI",                "asset_class": "china_equity",     "risk_score": 5},
-    "371160": {"name": "TIGER 차이나항셍테크",             "asset_class": "china_equity",     "risk_score": 5},
-    "371460": {"name": "TIGER 차이나전기차SOLACTIVE",      "asset_class": "china_equity",     "risk_score": 5},
-    # Europe / Developed / EM
-    "195930": {"name": "TIGER 유로스탁스50(합성 H)",       "asset_class": "foreign_equity",   "risk_score": 4},
-    "251350": {"name": "KODEX MSCI선진국",                 "asset_class": "foreign_equity",   "risk_score": 4},
-    "195980": {"name": "PLUS 신흥국MSCI(합성H)",           "asset_class": "foreign_equity",   "risk_score": 4},
-    # Korea sector / thematic
-    "091160": {"name": "KODEX 반도체",                     "asset_class": "domestic_sector",  "risk_score": 5},
-    "305720": {"name": "KODEX 2차전지산업",                "asset_class": "domestic_sector",  "risk_score": 5},
-    "462010": {"name": "TIGER 2차전지소재Fn",              "asset_class": "domestic_sector",  "risk_score": 5},
-    "449450": {"name": "PLUS K방산",                       "asset_class": "domestic_sector",  "risk_score": 5},
-    "466920": {"name": "SOL 조선TOP3플러스",               "asset_class": "domestic_sector",  "risk_score": 5},
-    "494670": {"name": "TIGER 조선TOP10",                  "asset_class": "domestic_sector",  "risk_score": 5},
-    "228790": {"name": "TIGER 화장품",                     "asset_class": "domestic_sector",  "risk_score": 5},
-    # Real estate / commodity
-    "352560": {"name": "KODEX 미국부동산리츠(H)",          "asset_class": "real_estate",      "risk_score": 4},
-    "132030": {"name": "KODEX 골드선물(H)",                "asset_class": "gold",             "risk_score": 4},
-}
+# ── Ticker universe — add/remove codes here ───────────────────────────────────
+TICKERS: list[str] = [
+    "069500", "229200",                          # Domestic equity
+    "289250", "290130",                          # ESG
+    "379800", "219480", "379810", "314250",      # US equity
+    "381180", "458730",                          # US equity (cont.)
+    "487240", "487230", "483320", "457480",      # US thematic
+    "498400",                                    # Covered call
+    "192090", "245360", "371160", "371460",      # China / Asia
+    "195930", "251350", "195980",                # Europe / Developed / EM
+    "091160", "305720", "462010", "449450",      # Korea sector
+    "466920", "494670", "228790",                # Korea sector (cont.)
+    "352560", "132030",                          # Real estate / gold
+]
+
+# Module-level metadata cache — populated by build_ticker_meta() in main()
+_META: dict[str, dict] = {}
+
+
+# ── ETF metadata helpers ───────────────────────────────────────────────────────
+
+def fetch_etf_name(ticker: str) -> str:
+    """Fetch ETF display name from Naver Finance mobile API."""
+    try:
+        url = f"https://m.stock.naver.com/api/stock/{ticker}/basic"
+        resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        if resp.ok:
+            return resp.json().get("stockName", ticker)
+    except Exception:
+        pass
+    return ticker
+
+
+def _classify_asset_class(name: str) -> str:
+    if any(k in name for k in ["ESG", "사회책임"]):
+        return "esg"
+    if any(k in name for k in ["골드", "금선물"]):
+        return "gold"
+    if any(k in name for k in ["부동산", "리츠"]):
+        return "real_estate"
+    if any(k in name for k in ["차이나", "HSCEI", "항셍", "중국"]):
+        return "china_equity"
+    if any(k in name for k in ["유로", "선진국", "신흥국"]):
+        return "foreign_equity"
+    if any(k in name for k in ["AI", "엔비디아", "테슬라", "핵심설비", "핵심인프라", "위클리커버드콜"]):
+        return "us_thematic"
+    if any(k in name for k in ["미국", "S&P", "나스닥", "빅테크", "배당다우", "필라델피아"]):
+        return "us_equity"
+    if any(k in name for k in ["반도체", "2차전지", "조선", "방산", "화장품"]):
+        return "domestic_sector"
+    return "domestic_equity"
+
+
+def _classify_risk_score(name: str) -> int:
+    if any(k in name for k in ["AI", "엔비디아", "테슬라", "반도체", "2차전지", "조선",
+                                 "방산", "화장품", "차이나", "항셍", "나스닥", "빅테크", "필라델피아"]):
+        return 5
+    if any(k in name for k in ["위클리커버드콜", "배당다우", "골드", "부동산", "리츠"]):
+        return 3
+    return 4
+
+
+def build_ticker_meta(tickers: list[str], logger: logging.Logger | None = None) -> dict[str, dict]:
+    """Fetch names from Naver API and auto-classify asset_class / risk_score."""
+    meta = {}
+    for ticker in tickers:
+        name = fetch_etf_name(ticker)
+        meta[ticker] = {
+            "name": name,
+            "asset_class": _classify_asset_class(name),
+            "risk_score": _classify_risk_score(name),
+        }
+        if logger:
+            logger.info(f"  [{ticker}] {name}  ({meta[ticker]['asset_class']}, risk={meta[ticker]['risk_score']})")
+    return meta
 
 
 # ── Logging ────────────────────────────────────────────────────────────────────
@@ -145,7 +179,7 @@ def _fetch_yfinance(ticker: str, start: str, end: str) -> pd.Series | None:
 
 
 def fetch_ticker(ticker: str, start: str, end: str, logger: logging.Logger) -> pd.Series | None:
-    logger.info(f"  [{ticker}] {TICKERS[ticker]['name']} — pykrx...")
+    logger.info(f"  [{ticker}] {_META.get(ticker, {}).get('name', ticker)} — pykrx...")
     series = _fetch_pykrx(ticker, start, end)
     if series is not None and not series.empty:
         logger.info(f"  [{ticker}] ✓ {len(series)} rows via pykrx")
@@ -162,7 +196,7 @@ def fetch_ticker(ticker: str, start: str, end: str, logger: logging.Logger) -> p
 
 
 def build_price_matrix(
-    tickers: dict, start: str, end: str, logger: logging.Logger
+    tickers: list, start: str, end: str, logger: logging.Logger
 ) -> pd.DataFrame:
     series_list = []
     for ticker in tickers:
@@ -195,7 +229,7 @@ def clean_prices(
         to_drop = missing_pct[missing_pct > MISSING_THRESHOLD].index.tolist()
         for t in to_drop:
             logger.warning(
-                f"Dropping {t} ({TICKERS.get(t, {}).get('name', t)}): "
+                f"Dropping {t} ({_META.get(t, {}).get('name', t)}): "
                 f"{missing_pct[t]:.1%} missing exceeds {MISSING_THRESHOLD:.0%} threshold"
             )
         df.drop(columns=to_drop, inplace=True)
@@ -215,7 +249,7 @@ def detect_anomalies(
     flagged = returns[returns < ANOMALY_THRESHOLD].stack()
     for (dt, ticker), ret in flagged.items():
         logger.warning(
-            f"ANOMALY | {ticker} | {TICKERS.get(ticker, {}).get('name', ticker)} "
+            f"ANOMALY | {ticker} | {_META.get(ticker, {}).get('name', ticker)} "
             f"| {dt.date()} | {ret:+.1%}"
         )
 
@@ -268,8 +302,8 @@ def print_summary(df: pd.DataFrame) -> None:
 
         rows.append({
             "Ticker":        ticker,
-            "Name":          TICKERS.get(ticker, {}).get("name", ticker),
-            "Asset Class":   TICKERS.get(ticker, {}).get("asset_class", ""),
+            "Name":          _META.get(ticker, {}).get("name", ticker),
+            "Asset Class":   _META.get(ticker, {}).get("asset_class", ""),
             "Date Range":    f"{series.index.min().date()} – {series.index.max().date()}",
             "Missing":       f"{missing_pct:.1%}",
             "Current (KRW)": f"{current_price:,.0f}",
@@ -295,7 +329,7 @@ def plot_correlation(df: pd.DataFrame, logger: logging.Logger) -> None:
 
     labels = []
     for t in corr.columns:
-        short = TICKERS.get(t, {}).get("name", t).replace("KODEX ", "").replace("선물", "F")
+        short = _META.get(t, {}).get("name", t).replace("KODEX ", "").replace("선물", "F")
         labels.append(f"{t}\n{short}")
 
     n = len(corr)
@@ -340,6 +374,10 @@ def main() -> None:
     logger = setup_logging()
     today_str = date.today().strftime("%Y-%m-%d")
 
+    global _META
+    logger.info(f"Fetching names for {len(TICKERS)} tickers from Naver API...")
+    _META = build_ticker_meta(TICKERS, logger)
+
     # Determine fetch window
     if args.update:
         existing = load_existing_prices(logger)
@@ -375,7 +413,7 @@ def main() -> None:
 
     # Save & report
     save_prices(df, logger)
-    save_metadata(TICKERS, logger)
+    save_metadata(_META, logger)
     print_summary(df)
     plot_correlation(df, logger)
     logger.info("Done.")
