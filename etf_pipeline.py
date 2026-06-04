@@ -15,6 +15,7 @@ Note: add new tickers to TICKERS below, then run without --update to backfill.
 import argparse
 import json
 import logging
+import re
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -60,6 +61,8 @@ _META: dict[str, dict] = {}
 
 def fetch_etf_name(ticker: str) -> str:
     """Fetch ETF display name from Naver Finance mobile API."""
+    if not re.match(r"^\d{6}$", ticker):
+        return ticker
     try:
         url = f"https://m.stock.naver.com/api/stock/{ticker}/basic"
         resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
