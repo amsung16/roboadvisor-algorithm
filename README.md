@@ -81,7 +81,7 @@ Open `ESG자산배분v4_edited.ipynb` in Jupyter and run all cells (`Kernel → 
 | Cell | Description |
 |------|-------------|
 | 0 | Install dependencies + imports |
-| 1 | Download 3 years of closing prices from KRX → `price.csv` |
+| 1 | Download 5 years of closing prices from KRX → `price.csv` |
 | 2 | Auto-fetch ETF names from Naver Finance API |
 | 3 | `get_universe_ranks()` — Dynamic Universe Rule → `rank2` |
 | 4 | Display full rankings table |
