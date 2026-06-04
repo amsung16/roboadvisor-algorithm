@@ -1,4 +1,4 @@
-# ESG 자산배분 — Korean ETF Monthly Rebalancing Tool
+# Roboadvisor Algorithm — Korean ETF Monthly Rebalancing Tool
 
 A quantitative ETF ranking and portfolio management tool for Korean markets. At each monthly rebalancing date, it scores ETFs by momentum and volatility, applies client risk profile constraints, and outputs actual portfolio weights.
 
