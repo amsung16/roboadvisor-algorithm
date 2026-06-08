@@ -29,7 +29,7 @@ from core.onboarding import run_onboarding, INVESTOR_PROFILE_PATH
 OUTPUTS = Path("outputs")
 APPROVED_WEIGHTS_PATH = OUTPUTS / "approved_weights.json"
 APPROVAL_LOG_PATH = OUTPUTS / "approval_log.csv"
-PRICE_CSV = Path("data") / "etf_prices.csv"
+PRICE_CSV = OUTPUTS / "price.csv"
 
 _name_cache: dict[str, str] = {}
 
