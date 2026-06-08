@@ -284,6 +284,51 @@ display(result)
 
 ---
 
+## Known Risks & Limitations
+
+These are known gaps in the current system. They are documented intentionally — not bugs to fix immediately, but constraints to be aware of when interpreting results or presenting to stakeholders.
+
+### Backtest Bias
+The backtest covers Jan 2024 – present, which was a strong bull market for Korean equities and semiconductors. Momentum strategies perform exceptionally well in trending markets. The results (+139% for Profile B, Sharpe 3.26) **cannot be generalized** as long-term evidence. A credible backtest needs at least one full bear market cycle (2020 COVID crash, 2022 rate-hike drawdown). Connect `data/etf_prices.csv` (starts 2018) to the backtest to address this.
+
+### LLM Report (No API Key)
+`core/report.py` is built to call an LLM API (Anthropic Claude or Google Gemini) and generate a plain-language Korean advisory report. **Without an API key, it falls back to a plain text summary** — functional but not as readable. The fallback is intentional so the CLI never crashes. API cost is minimal (~$0.01 per report) and worth enabling before client-facing use.
+
+### No Trade Execution
+`advisor.py --rebalance` logs approved allocations to `outputs/approval_log.csv` but **does not place any trades**. Connecting to a Korean brokerage API (KIS Developers, eBest, Kiwoom Open API) would enable actual execution. This requires brokerage account setup and compliance review — scope for a future version.
+
+### No ESG Scoring in Algorithm
+The `frank` score uses only momentum and volatility. ESG ETFs (RISE ESG사회책임투자, TIGER MSCI KOREA ESG유니버설) are included in the universe but **ESG quality is not a factor in the ranking**. Adding ESG scores as a third factor (`frank = mrank + vrank - mrank3 - γ × esg_rank`) would align the algorithm with the firm's ESG advisory mandate. Requires a data source for ESG scores (Korea ESG Research API or MSCI).
+
+### Single Data Source
+`etf_pipeline.py` relies on `pykrx` with a `yfinance` fallback. If both are unavailable (API changes, network issues), the update fails silently. No alerting system exists yet — check `data/pipeline.log` manually if data looks stale.
+
+### No Cluster-Based Diversification
+The clustering heatmap in the notebook shows ETF correlation groups, but this is not connected to the allocation logic. The algorithm can accidentally concentrate 40%+ in a single sector (e.g. semiconductors) if multiple sector ETFs rank high simultaneously. A cluster cap (max 25–30% per cluster) would prevent this and fulfill the K-means claim in the regulatory filing.
+
+### Transaction Costs Not Modeled
+The backtest assumes zero transaction costs. In practice, Korean ETF trading involves brokerage fees (~0.015%) and market impact for larger orders. Returns are slightly overstated as a result.
+
+---
+
+## Future Implementations
+
+Features planned but not yet built. Roughly ordered by priority.
+
+| Feature | What it needs | Why |
+|---------|---------------|-----|
+| **LLM advisory report** | Anthropic or Gemini API key | Converts algorithm output → readable Korean report for clients |
+| **Extended backtest (2018–present)** | Point `backtest()` at `data/etf_prices.csv` | Includes 2020 crash + 2022 bear market for credible performance claims |
+| **ESG factor in frank score** | Korea ESG Research or MSCI data | Algorithm actually earns its "ESG" name |
+| **Cluster diversification cap** | Connect Cell 12 clustering to `compute_weights()` | Prevents sector concentration; fulfills K-means regulatory claim |
+| **Tunable α/β weights** | Code change only (no external API) | `frank = α×mrank + β×vrank` lets risk profiles weight momentum vs. stability differently |
+| **Brokerage API integration** | KIS Developers / eBest API account | Actual trade execution after human approval |
+| **Email/Slack notification** | SMTP or Slack webhook | Alerts advisor when daily pipeline update completes or anomaly is detected |
+| **PCA residual momentum** | Code change only | Ranks ETFs by return above the market, not raw return — better signal in bull markets |
+| **Predicted momentum (XGBoost)** | Feature engineering + model training | Forward-looking ranking signal inspired by 구도자산운용's alt-data approach |
+
+---
+
 ## Notes
 
 - ETF names are fetched automatically from the Naver Finance API — no manual mapping needed
