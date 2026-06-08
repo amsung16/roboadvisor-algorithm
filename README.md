@@ -4,6 +4,95 @@ A quantitative ETF ranking and portfolio management tool for Korean markets. At 
 
 ---
 
+## Project Structure
+
+```
+.
+├── advisor.py                    # CLI entry point — monthly rebalancing workflow
+├── etf_pipeline.py               # Standalone price data pipeline (fetch + clean)
+├── ESG자산배분v4_edited.ipynb    # Interactive analysis notebook
+├── run_monthly.sh                # One-line script: update data + run rebalancing
+├── requirements.txt
+├── core/
+│   ├── ranking.py                # get_universe_ranks(), MIN_HISTORY
+│   ├── weights.py                # compute_weights(), RISK_LIMITS, VOL_THRESHOLD
+│   ├── backtest.py               # backtest(), backtest_metrics()
+│   └── report.py                 # generate_report() — Claude-powered Korean advisory report
+├── outputs/                      # Notebook outputs (gitignored)
+│   ├── price.csv
+│   ├── rankings.csv
+│   ├── approved_weights.json     # Last approved rebalancing weights
+│   ├── approval_log.csv          # Full approval history
+│   ├── clustering_heatmap.png
+│   └── backtest_results.png
+└── data/                         # Pipeline outputs (gitignored)
+    ├── etf_prices.csv
+    ├── etf_metadata.json
+    ├── correlation_heatmap.png
+    └── anomalies.log
+```
+
+---
+
+## Setup
+
+```bash
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+```
+
+Create a `.env` file in the project root with your Anthropic API key (required for AI-generated reports):
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+If the key is absent, `generate_report()` falls back to a plain-text summary automatically.
+
+---
+
+## Run
+
+### Monthly rebalancing workflow (production use)
+
+```bash
+# 1. Update price data
+python etf_pipeline.py --update
+
+# 2. Run the advisory CLI for a specific risk profile
+python advisor.py --rebalance --profile B
+```
+
+Or run both steps together with the monthly script:
+
+```bash
+bash run_monthly.sh
+```
+
+### Other CLI commands
+
+```bash
+# Auto-generate the Korean LLM report before the approval prompt
+python advisor.py --rebalance --profile B --explain
+
+# Show current computed weights without an approval prompt
+python advisor.py --status --profile B
+
+# Show the full approval history
+python advisor.py --history
+
+# Dry-run (compute and display without saving anything)
+python advisor.py --rebalance --profile B --dry-run
+```
+
+### Interactive notebook
+
+```bash
+jupyter notebook ESG자산배분v4_edited.ipynb   # run all cells top to bottom
+```
+
+---
+
 ## How It Works
 
 The strategy ranks ETFs using two signals:
@@ -60,19 +149,17 @@ Lower frank score = higher allocation. Risk profile constraints are then applied
 
 ---
 
-## Setup
+## Rebalancing Approval Flow
 
-### Requirements
+`advisor.py --rebalance` runs the full advisory workflow:
 
-```bash
-pip install pykrx pandas numpy requests scipy seaborn
-```
+1. Loads `outputs/price.csv` and computes the last month-end rebalancing date
+2. Runs `get_universe_ranks()` and `compute_weights()` for the selected profile
+3. Prints a colour-coded proposal table showing weights, changes, and BUY/HOLD/REDUCE/SELL signals
+4. Prompts: `y` approve · `n` reject · `explain` generate AI report · `q` quit
+5. On approval: writes `outputs/approved_weights.json` and appends to `outputs/approval_log.csv`
 
-Or let Cell 0 handle it automatically — it runs the installs on startup.
-
-### Run
-
-Open `ESG자산배분v4_edited.ipynb` in Jupyter and run all cells (`Kernel → Restart & Run All`).
+No trades are executed — the tool logs decisions only.
 
 ---
 
@@ -188,10 +275,12 @@ display(result)
 
 | File | Description |
 |------|-------------|
-| `price.csv` | Raw closing prices for all ETFs |
-| `rankings.csv` | Latest rebalancing rankings |
-| `clustering_heatmap.png` | Hierarchical correlation clustering chart |
-| `backtest_results.png` | Portfolio value + drawdown chart |
+| `outputs/price.csv` | Raw closing prices for all ETFs |
+| `outputs/rankings.csv` | Latest rebalancing rankings |
+| `outputs/approved_weights.json` | Last approved portfolio weights per profile |
+| `outputs/approval_log.csv` | Full approval history (date, profile, turnover, top 3 ETFs) |
+| `outputs/clustering_heatmap.png` | Hierarchical correlation clustering chart |
+| `outputs/backtest_results.png` | Portfolio value + drawdown chart |
 
 ---
 
