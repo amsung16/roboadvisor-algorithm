@@ -3,10 +3,12 @@
 advisor.py — ESG Advisory CLI
 
 Usage:
+  python advisor.py --onboard --name "홍길동"
   python advisor.py --rebalance --profile B
   python advisor.py --rebalance --profile B --explain
   python advisor.py --status --profile B
   python advisor.py --history
+  python advisor.py --reset-profile
 """
 
 import argparse
@@ -22,6 +24,7 @@ import requests
 from core.ranking import get_universe_ranks
 from core.weights import compute_weights, RISK_LIMITS
 from core.report import generate_report
+from core.onboarding import run_onboarding, INVESTOR_PROFILE_PATH
 
 OUTPUTS = Path("outputs")
 APPROVED_WEIGHTS_PATH = OUTPUTS / "approved_weights.json"
@@ -280,7 +283,44 @@ def run_approval(weights, prev_weights, profile, rebal_date, rows, turnover, dry
             print("Enter 'y', 'n', 'explain', or 'q'.")
 
 
+# ── Profile resolution ─────────────────────────────────────────────────────
+
+def resolve_profile(profile_arg: str | None) -> str:
+    """Return the profile to use: explicit arg > saved profile > error."""
+    if profile_arg:
+        return profile_arg
+    if INVESTOR_PROFILE_PATH.exists():
+        data = json.loads(INVESTOR_PROFILE_PATH.read_text(encoding="utf-8"))
+        saved = data.get("profile")
+        if saved in RISK_LIMITS:
+            name = data.get("name", "")
+            print(f"저장된 프로필 사용: {name}님 ({saved}형)\n")
+            return saved
+    print("프로필이 없습니다. 먼저 python advisor.py --onboard 를 실행하세요.")
+    sys.exit(1)
+
+
 # ── Commands ───────────────────────────────────────────────────────────────
+
+def cmd_onboard(name: str | None):
+    if not name:
+        try:
+            name = input("투자자 이름을 입력하세요: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            sys.exit(0)
+    if not name:
+        print("이름을 입력해주세요.")
+        sys.exit(1)
+    run_onboarding(name)
+
+
+def cmd_reset_profile(name: str | None):
+    if INVESTOR_PROFILE_PATH.exists():
+        INVESTOR_PROFILE_PATH.unlink()
+        print("기존 프로필이 삭제되었습니다.\n")
+    cmd_onboard(name)
+
 
 def cmd_rebalance(profile: str, explain: bool, dry_run: bool):
     price = load_price()
@@ -384,16 +424,23 @@ def main():
     mode.add_argument("--rebalance", action="store_true", help="Compute and approve a rebalancing")
     mode.add_argument("--status", action="store_true", help="Show current computed weights")
     mode.add_argument("--history", action="store_true", help="Show past approved rebalancings")
-    parser.add_argument("--profile", choices=["A", "B", "C"], default="B")
+    mode.add_argument("--onboard", action="store_true", help="Run investor risk-profile questionnaire")
+    mode.add_argument("--reset-profile", action="store_true", help="Delete saved profile and re-run onboarding")
+    parser.add_argument("--profile", choices=["A", "B", "C"], help="Risk profile (overrides saved profile)")
+    parser.add_argument("--name", help="Investor name for onboarding")
     parser.add_argument("--explain", action="store_true", help="Auto-generate AI report before approval")
     parser.add_argument("--dry-run", action="store_true", help="Skip saving; useful for testing")
 
     args = parser.parse_args()
 
-    if args.rebalance:
-        cmd_rebalance(args.profile, args.explain, args.dry_run)
+    if args.onboard:
+        cmd_onboard(args.name)
+    elif args.reset_profile:
+        cmd_reset_profile(args.name)
+    elif args.rebalance:
+        cmd_rebalance(resolve_profile(args.profile), args.explain, args.dry_run)
     elif args.status:
-        cmd_status(args.profile)
+        cmd_status(resolve_profile(args.profile))
     elif args.history:
         cmd_history()
 
