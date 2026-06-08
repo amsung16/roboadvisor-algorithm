@@ -62,13 +62,10 @@ def load_price() -> pd.DataFrame:
 
 
 def last_month_end(price: pd.DataFrame) -> pd.Timestamp:
-    """Last trading day of the most recently completed month."""
-    today = pd.Timestamp.today().normalize()
-    cutoff = today.replace(day=1) - pd.Timedelta(days=1)  # end of previous month
-    available = price.index[price.index <= cutoff]
-    if available.empty:
-        raise ValueError(f"No price data available on or before {cutoff.date()}")
-    return available[-1]
+    """Last available trading day in price data."""
+    if price.index.empty:
+        raise ValueError("Price data is empty")
+    return price.index[-1]
 
 
 def load_prev_weights(profile: str) -> pd.DataFrame | None:
